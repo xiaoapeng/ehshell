@@ -57,7 +57,7 @@ struct ehshell_command_info{
      * @param  argc             命令参数数量
      * @param  argv             命令参数数组
      */
-    void (*do_function)(ehshell_cmd_context_t *cmd_context, int argc, char *argv[]);
+    void (*do_function)(ehshell_cmd_context_t *cmd_context, int argc, const char *argv[]);
     
     /**
      * @brief                   事件处理函数
@@ -103,7 +103,7 @@ extern void ehshell_notify_processor(ehshell_t *ehshell);
  * @param  argv             命令参数数组
  * @return int              成功返回0, 失败返回负数
  */
-extern int ehshell_command_run(ehshell_t *ehshell, int argc, char *argv[]);
+extern int ehshell_command_run(ehshell_t *ehshell, int argc, const char *argv[]);
 
 
 /**
@@ -149,7 +149,7 @@ extern ehshell_t* ehshell_default(void);
  * @param  command_info_num 命令信息数组大小
  * @return int              成功返回0, 失败返回负数
  */
-extern int ehshell_register_command(ehshell_t *ehshell, const struct ehshell_command_info *command_info, size_t command_info_num);
+extern int ehshell_register_commands(ehshell_t *ehshell, const struct ehshell_command_info *command_info, size_t command_info_num);
 
 
 

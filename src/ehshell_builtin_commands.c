@@ -13,7 +13,7 @@
 #include <ehshell.h>
 #include <ehshell_internal.h>
 
-static void do_help(ehshell_cmd_context_t *cmd_context, int argc, char *argv[]){
+static void do_help(ehshell_cmd_context_t *cmd_context, int argc, const char *argv[]){
     if(argc > 2){
         /* 参数太多 */
         eh_stream_printf(ehshell_command_stream(cmd_context), "Parameter too many.\r\n");
@@ -38,7 +38,7 @@ quit:
     ehshell_command_finish(cmd_context);
 }
 
-static void do_exit_mainloop(ehshell_cmd_context_t *cmd_context, int argc, char *argv[]){
+static void do_exit_mainloop(ehshell_cmd_context_t *cmd_context, int argc, const char *argv[]){
     (void)argc;
     (void)argv;
     eh_signal_dispatch_loop_request_quit_from_task(eh_task_main());
@@ -69,7 +69,7 @@ size_t ehshell_builtin_commands_count(void){
 
 int ehshell_register_builtin_commands(ehshell_t* ehshell){
     int ret;
-    ret = ehshell_register_command(ehshell, ehshell_command_info_tbl, EH_ARRAY_SIZE(ehshell_command_info_tbl));
+    ret = ehshell_register_commands(ehshell, ehshell_command_info_tbl, EH_ARRAY_SIZE(ehshell_command_info_tbl));
     if(ret < 0)
         return ret;
     return 0;

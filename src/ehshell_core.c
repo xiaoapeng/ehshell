@@ -71,7 +71,7 @@ static void ehshell_reset(ehshell_t *shell){
 
 static int _ehshell_command_run_form_string(ehshell_t *ehshell, char *cmd_str)
 {
-    char *argv[EHSHELL_CONFIG_ARGC_MAX] = {0};
+    const char *argv[EHSHELL_CONFIG_ARGC_MAX] = {0};
     int argc = 0;
 
     char *p = cmd_str;
@@ -532,7 +532,7 @@ const struct ehshell_command_info* ehshell_command_find(ehshell_t *ehshell, cons
     return command_info_tab[pos];
 }
 
-int ehshell_command_run(ehshell_t *ehshell, int argc, char *argv[]){
+int ehshell_command_run(ehshell_t *ehshell, int argc, const char *argv[]){
     const struct ehshell_command_info* command_info;
     bool is_background = false;
     if(argc < 1 || !argv[0]){
@@ -700,7 +700,7 @@ ehshell_t *ehshell_default(void){
     return ehshell_default_shell;
 }
 
-int ehshell_register_command(ehshell_t *ehshell, const struct ehshell_command_info *command_info, size_t command_info_num){
+int ehshell_register_commands(ehshell_t *ehshell, const struct ehshell_command_info *command_info, size_t command_info_num){
     const struct ehshell_command_info **commands;
     if(!ehshell || !command_info || command_info_num == 0)
         return EH_RET_INVALID_PARAM;
