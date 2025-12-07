@@ -62,7 +62,7 @@ static void ehshell_print_prompt(ehshell_t *shell){
     }
 }
 
-static void ehshell_reset(ehshell_t *shell){
+static void ehshell_input_reset(ehshell_t *shell){
     shell->linebuf_pos = 0;
     shell->linebuf_data_len = 0;
     shell->escape_char_match_state = 0;
@@ -193,7 +193,7 @@ static void ehshell_command_auto_complete(ehshell_t *shell){
             eh_stream_puts((struct stream_base *)&shell->stream, "\t\t");
         }
     }
-    if(is_multi_match){
+        if(is_multi_match){
         eh_stream_puts((struct stream_base *)&shell->stream, "\r\n");
         ehshell_print_prompt(shell);
     }
@@ -213,26 +213,89 @@ static void ehshell_command_auto_complete(ehshell_t *shell){
     }
     shell->linebuf_pos += (uint16_t)diff;
     shell->linebuf_data_len += (uint16_t)diff;
-    strncpy(linebuf + linebuf_pos, first_completion + linebuf_pos, diff);
+        strncpy(linebuf + linebuf_pos, first_completion + linebuf_pos, diff);
+}
+
+static void ehshell_processor_input_ringbuf_redirect_init(ehshell_t *shell){
+    ehshell_cmd_context_t *cmd_current;
+    cmd_current = shell->cmd_current;
+    if(eh_unlikely(cmd_current == NULL)){
+        eh_mwarnfl(EHSHELL, "redirect input without command context");
+        goto status_reset;
+    }
+    if(eh_unlikely(cmd_current->flags & EHSHELL_CMD_CONTEXT_FLAG_BACKGROUND)){
+        eh_mwarnfl(EHSHELL, "redirect input to background command");
+        goto status_reset;
+    }
+    if(eh_unlikely(!(cmd_current->command_info->flags & EHSHELL_COMMAND_REDIRECT_INPUT))){
+        /* 本命令不支持重定向 */
+        eh_mwarnfl(EHSHELL, "command %s not support redirect input", cmd_current->command_info->command);
+        goto status_reset;
+    }
+    ehshell_input_reset(shell);
+    shell->redirect_input_escape_parse_pos = shell->input_ringbuf->r;
+status_reset:
+    shell->state = EHSHELL_STATE_RESET;
+    ehshell_notify_processor(shell);
+}
+
+static void ehshell_processor_input_ringbuf_redirect(ehshell_t *shell){
+    const char *input_buf[2] = {NULL, NULL};
+    size_t input_buf_len[2] = {0, 0};
+    int32_t rl = 0, pl = 0, chars_count;
+    eh_ringbuf_t peek_ringbuf;
+    bool is_request_quit = false;
+    peek_ringbuf = *shell->input_ringbuf;
+    peek_ringbuf.r = shell->redirect_input_escape_parse_pos;
+    chars_count = eh_ringbuf_size(&peek_ringbuf);
+    if(chars_count == 0)
+        return;
+    rl = 0;
+    input_buf[0] = (const char *)eh_ringbuf_peek(&peek_ringbuf, 0, NULL, &rl);
+    input_buf_len[0] = (size_t)rl;
+    rl = 0;
+    input_buf[1] = (const char *)eh_ringbuf_peek(&peek_ringbuf, (int32_t)input_buf_len[0], NULL, &rl);
+    input_buf_len[1] = (size_t)rl;
+    for(size_t i = 0; i < 2; i++){
+        for(size_t j = 0; j < input_buf_len[i]; j++){
+            char input = input_buf[i][j];
+            enum ehshell_escape_char escape_char;
+            pl++;
+            escape_char = ehshell_escape_char_parse(shell, input);
+            if(escape_char == ESCAPE_CHAR_CTRL_C_SIGINT){
+                is_request_quit = true;
+                goto next;
+            }
+        }
+    }
+next:
+    eh_ringbuf_read_skip(&peek_ringbuf, (int32_t)pl);
+    shell->redirect_input_escape_parse_pos = peek_ringbuf.r;
+    if(shell->cmd_current->command_info->do_event_function){
+        shell->cmd_current->command_info->do_event_function(
+            shell->cmd_current, EHSHELL_EVENT_RECEIVE_INPUT_DATA | (is_request_quit ? EHSHELL_EVENT_SIGINT_REQUEST_QUIT : 0));
+    }
+    if(is_request_quit){
+        ehshell_notify_processor(shell);
+    }
 }
 
 static void ehshell_processor_input_ringbuf(ehshell_t *shell){
     const char *input_buf[2] = {NULL, NULL};
     size_t input_buf_len[2] = {0, 0};
-    bool is_echo = true;
     int32_t rl,pl = 0, chars_count = 0;
     eh_ringbuf_t *tmp_ringbuf;
     char *linebuf = ehshell_linebuf(shell);
-    /* 
-     * 因为我们足够了解eh_ringbuf的实现，
-     * 所以我们可以直接修改tmp_ringbuf的r指针，
-     * 这样可以方便的读取回显位置之后的字符 
-     */
-    eh_ringbuf_t peek_ringbuf = *shell->input_ringbuf;
-    peek_ringbuf.r = shell->echo_pos;
+    eh_ringbuf_t peek_ringbuf;
 
     if(shell->cmd_current){
-        is_echo = !(shell->cmd_current->command_info->flags & EHSHELL_COMMAND_FLAG_RX_DISABLE);
+        /* 
+        * 因为我们足够了解eh_ringbuf的实现，
+        * 所以我们可以直接修改tmp_ringbuf的r指针，
+        * 这样可以方便的读取回显位置之后的字符 
+        */
+        peek_ringbuf = *shell->input_ringbuf;
+        peek_ringbuf.r = shell->echo_pos;
         tmp_ringbuf = &peek_ringbuf;
     }else{
         tmp_ringbuf = shell->input_ringbuf;
@@ -240,59 +303,57 @@ static void ehshell_processor_input_ringbuf(ehshell_t *shell){
     chars_count = eh_ringbuf_size(tmp_ringbuf);
     if(chars_count == 0)
         return;
+    /* 
+     *  因为我们是环形缓冲区，所以读两次，必然可以零拷贝并取出所需数据
+     */
     rl = 0;
-    input_buf[0] = (const char *)eh_ringbuf_peek(shell->input_ringbuf, 0, NULL, &rl);
+    input_buf[0] = (const char *)eh_ringbuf_peek(tmp_ringbuf, 0, NULL, &rl);
     input_buf_len[0] = (size_t)rl;
     rl = 0;
-    input_buf[1] = (const char *)eh_ringbuf_peek(shell->input_ringbuf, (int32_t)input_buf_len[0], NULL, &rl);
+    input_buf[1] = (const char *)eh_ringbuf_peek(tmp_ringbuf, (int32_t)input_buf_len[0], NULL, &rl);
     input_buf_len[1] = (size_t)rl;
-    for(int i = 0; i < 2; i++){
+    for(size_t i = 0; i < 2; i++){
         for(size_t j = 0; j < input_buf_len[i]; j++){
             char input = input_buf[i][j];
             enum ehshell_escape_char escape_char;
             escape_char = ehshell_escape_char_parse(shell, input);
             pl++;
             if(isprint(escape_char)){
-                if(!shell->cmd_current){
-                    is_echo = shell->linebuf_data_len < (shell->config->input_linebuf_size - 1);
+                int diff;
+                if(shell->cmd_current){
+                    /* 如果当前有命令在执行，就直接回显 */
+                    eh_stream_putc((struct stream_base *)&shell->stream, (char)escape_char);
+                    continue;
                 }
-                if(!is_echo)
+                /* 判断命令行缓冲区是否有空间，如果没有空间就直接丢弃 */
+                if(shell->linebuf_data_len >= (shell->config->input_linebuf_size - 1))
                     continue;
                 eh_stream_putc((struct stream_base *)&shell->stream, (char)escape_char);
-                if(!shell->cmd_current){
+                diff = shell->linebuf_data_len - shell->linebuf_pos;
+                /* 存储命令 */
+                if(diff > 0){
+                    /* 后移一位 */
+                    memmove(linebuf + shell->linebuf_pos + 1, linebuf + shell->linebuf_pos, shell->linebuf_data_len - shell->linebuf_pos);
                     int diff = shell->linebuf_data_len - shell->linebuf_pos;
-                    /* 存储命令 */
-                    if(diff > 0){
-                        /* 后移一位 */
-                        memmove(linebuf + shell->linebuf_pos + 1, linebuf + shell->linebuf_pos, shell->linebuf_data_len - shell->linebuf_pos);
-                        int diff = shell->linebuf_data_len - shell->linebuf_pos;
-                        eh_stream_printf((struct stream_base *)&shell->stream, "%.*s\x1B[%dD", 
-                            diff, linebuf + shell->linebuf_pos + 1, diff);
-                    }
-                    linebuf[shell->linebuf_pos] = (char)escape_char;
-                    shell->linebuf_pos++;
-                    shell->linebuf_data_len++;
+                    eh_stream_printf((struct stream_base *)&shell->stream, "%.*s\x1B[%dD", 
+                        diff, linebuf + shell->linebuf_pos + 1, diff);
                 }
+                linebuf[shell->linebuf_pos] = (char)escape_char;
+                shell->linebuf_pos++;
+                shell->linebuf_data_len++;
                 continue;
             }
             if(shell->cmd_current){
                 if(escape_char == ESCAPE_CHAR_NUL)
                     continue;
-                /* ctrl+a -> ctrl+z*/
-                if(escape_char >= ESCAPE_CHAR_CTRL_A && escape_char <= ESCAPE_CHAR_CTRL_Z){
-                    eh_stream_putc((struct stream_base *)&shell->stream, '^');
-                    eh_stream_putc((struct stream_base *)&shell->stream, (char)(escape_char - ESCAPE_CHAR_CTRL_A + 'A'));
-                    if(escape_char == ESCAPE_CHAR_CTRL_C_SIGINT && pl == (chars_count - 1)){
-                        /* 发送SIGINT信号 */
-                        if(shell->cmd_current->command_info->do_event_function){
-                            shell->cmd_current->command_info->do_event_function(shell->cmd_current, EHSHELL_EVENT_SIGINT_REQUEST_QUIT);
-                        }
-                    }
-                    continue;
-                }
                 switch (escape_char) {
+                    case ESCAPE_CHAR_CTRL_J_LF:{
+                        eh_stream_puts((struct stream_base *)&shell->stream, "\r\n");
+                        continue;
+                    }
+                    case ESCAPE_CHAR_CTRL_BACKSPACE_0:
                     case ESCAPE_CHAR_CTRL_BACKSPACE_1:{
-                        eh_stream_putc((struct stream_base *)&shell->stream, '\b');
+                        eh_stream_puts((struct stream_base *)&shell->stream, "\b \b");
                         continue;
                     }
                     case ESCAPE_CHAR_CTRL_HOME:{
@@ -324,7 +385,20 @@ static void ehshell_processor_input_ringbuf(ehshell_t *shell){
                         continue;
                     }
                     default:
-                        continue;
+                        break;
+                }
+                /* ctrl+a -> ctrl+z*/
+                if(escape_char >= ESCAPE_CHAR_CTRL_A && escape_char <= ESCAPE_CHAR_CTRL_Z){
+                    eh_stream_putc((struct stream_base *)&shell->stream, '^');
+                    eh_stream_putc((struct stream_base *)&shell->stream, (char)(escape_char - ESCAPE_CHAR_CTRL_A + 'A'));
+                    if(escape_char == ESCAPE_CHAR_CTRL_C_SIGINT && pl == chars_count){
+                        /* 发送SIGINT信号 */
+                        if(shell->cmd_current->command_info->do_event_function){
+                            shell->cmd_current->command_info->do_event_function(shell->cmd_current, EHSHELL_EVENT_SIGINT_REQUEST_QUIT);
+                        }
+                        goto status_refresh;
+                    }
+                    continue;
                 }
             }else{
                 switch (escape_char){
@@ -332,7 +406,7 @@ static void ehshell_processor_input_ringbuf(ehshell_t *shell){
                         continue;
                     case ESCAPE_CHAR_CTRL_C_SIGINT:{
                         eh_stream_puts((struct stream_base *)&shell->stream, "^C\r\n");
-                        ehshell_reset(shell);
+                        ehshell_input_reset(shell);
                         ehshell_print_prompt(shell);
                         continue;
                     }
@@ -364,10 +438,9 @@ static void ehshell_processor_input_ringbuf(ehshell_t *shell){
                         linebuf[shell->linebuf_data_len] = '\0';
                         if(shell->linebuf_data_len && _ehshell_command_run_form_string(shell, linebuf) == 0){
                             /* 运行命令,由于一些状态信息更新，需要重新进处理 */
-                            ehshell_notify_processor(shell);
-                            goto quit;
+                            goto status_refresh;
                         }
-                        ehshell_reset(shell);
+                        ehshell_input_reset(shell);
                         ehshell_print_prompt(shell);
                         continue;
                     }
@@ -379,7 +452,7 @@ static void ehshell_processor_input_ringbuf(ehshell_t *shell){
                     case ESCAPE_CHAR_CTRL_U_DEL_LINE:
                     case ESCAPE_CHAR_CTRL_RESET:{
                         eh_stream_puts((struct stream_base *)&shell->stream, "\x0e\r");
-                        ehshell_reset(shell);
+                        ehshell_input_reset(shell);
                         ehshell_print_prompt(shell);
                         continue;
                     }
@@ -437,8 +510,9 @@ static void ehshell_processor_input_ringbuf(ehshell_t *shell){
             }
         }
     }
-
-quit:
+status_refresh:
+    ehshell_notify_processor(shell);
+// quit:
     eh_stream_finish((struct stream_base *)&shell->stream);
     eh_ringbuf_read_skip(tmp_ringbuf, pl);
     if(shell->cmd_current){
@@ -453,15 +527,22 @@ static void ehshell_processor(eh_event_t *e, void *slot_param){
     switch (shell->state) {
         case EHSHELL_INIT:
             ehshell_print_welcome(shell);
-            /* FALLTHROUGH */
+            _fallthrough;
         case EHSHELL_STATE_RESET:
-            ehshell_reset(shell);
+            ehshell_input_reset(shell);
             ehshell_print_prompt(shell);
             eh_stream_finish((struct stream_base *)&shell->stream);
             shell->state = EHSHELL_STATE_WAIT_INPUT;
-            break;
+            _fallthrough;
         case EHSHELL_STATE_WAIT_INPUT:
             ehshell_processor_input_ringbuf(shell);
+            break;
+        case EHSHELL_STATE_REDIRECT_INPUT_INIT:
+            ehshell_processor_input_ringbuf_redirect_init(shell);
+            shell->state = EHSHELL_STATE_REDIRECT_INPUT;
+            _fallthrough;
+        case EHSHELL_STATE_REDIRECT_INPUT:
+            ehshell_processor_input_ringbuf_redirect(shell);
             break;
     }
 }
@@ -497,8 +578,11 @@ static ehshell_cmd_context_t *ehshell_cmd_context_create(ehshell_t *ehshell, con
     ctx->flags = is_background ? EHSHELL_CMD_CONTEXT_FLAG_BACKGROUND : 0;
     if(is_background){
         ehshell->cmd_background[idx] = ctx;
+        ehshell->state = EHSHELL_STATE_RESET;
     }else{
         ehshell->cmd_current = ctx;
+        if(command_info->flags & EHSHELL_COMMAND_REDIRECT_INPUT)
+            ehshell->state = EHSHELL_STATE_REDIRECT_INPUT_INIT;
     }
     return ctx;
 }
@@ -559,8 +643,17 @@ int ehshell_command_run(ehshell_t *ehshell, int argc, const char *argv[]){
         return eh_ptr_to_error(ctx);
     }
     ctx->command_info->do_function(ctx, argc, argv);
-
     return 0;
+}
+
+
+void ehshell_command_set_user_data(ehshell_cmd_context_t *cmd_context, void *user_data){
+    cmd_context->user_data = user_data;
+}
+
+
+void *ehshell_command_get_user_data(ehshell_cmd_context_t *cmd_context){
+    return cmd_context->user_data;
 }
 
 
@@ -661,11 +754,18 @@ void ehshell_destroy(ehshell_t *ehshell){
         ehshell_default_shell = NULL;
     for(size_t i = 0; i < EHSHELL_CONFIG_MAX_BACKGROUND_COMMAND_SIZE; i++){
         if(ehshell->cmd_background[i]){
+            if(ehshell->cmd_background[i]->command_info->do_event_function){
+                ehshell->cmd_background[i]->command_info->do_event_function(ehshell->cmd_background[i], EHSHELL_EVENT_SHELL_EXIT);
+            }
             ehshell->cmd_background[i]->ehshell = NULL;
         }
     }
-    if(ehshell->cmd_current)
+    if(ehshell->cmd_current){
+        if(ehshell->cmd_current->command_info->do_event_function){
+            ehshell->cmd_current->command_info->do_event_function(ehshell->cmd_current, EHSHELL_EVENT_SHELL_EXIT);
+        }
         ehshell->cmd_current->ehshell = NULL;
+    }
     eh_signal_slot_disconnect(&ehshell->sig_notify_process, &ehshell->sig_notify_process_slot);
     eh_ringbuf_destroy(ehshell->input_ringbuf);
     eh_free(ehshell);
@@ -687,6 +787,29 @@ struct stream_base *ehshell_command_stream(ehshell_cmd_context_t *cmd_context){
     if(cmd_context == NULL || cmd_context->ehshell == NULL)
         return NULL;
     return (struct stream_base *)&cmd_context->ehshell->stream;
+}
+
+
+const char *ehshell_command_usage(ehshell_cmd_context_t *cmd_context){
+    if(!cmd_context || !cmd_context->command_info)
+        return NULL;
+    return cmd_context->command_info->usage;
+}
+
+
+eh_ringbuf_t* ehshell_command_input_ringbuf(ehshell_cmd_context_t *cmd_context, int32_t *readable_size){
+    eh_ringbuf_t tmp_ringbuf;
+    ehshell_t *ehshell = cmd_context->ehshell;
+    if( !cmd_context || 
+        !(cmd_context->command_info->flags & EHSHELL_COMMAND_REDIRECT_INPUT) ||
+        !ehshell ||
+        ehshell->state != EHSHELL_STATE_REDIRECT_INPUT ||
+        ehshell->cmd_current != cmd_context)
+        return NULL;
+    tmp_ringbuf = *ehshell->input_ringbuf;
+    tmp_ringbuf.w = ehshell->redirect_input_escape_parse_pos;
+    *readable_size = eh_ringbuf_size(&tmp_ringbuf);
+    return ehshell->input_ringbuf;
 }
 
 

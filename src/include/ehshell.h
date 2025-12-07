@@ -42,13 +42,12 @@ enum ehshell_event{
     EHSHELL_EVENT_RECEIVE_INPUT_DATA = (1 << 2),        /* 接收输入数据事件 */
 };
 
-#define EHSHELL_COMMAND_FLAG_ECHO_OFF (1 << 0)        /* 当命令运行时不回显 */
-#define EHSHELL_COMMAND_FLAG_RX_DISABLE (1 << 1)      /* 命令行不响应输入事件 */
 
 struct ehshell_command_info{
     const char *command;
     const char *description;
     const char *usage;
+#define EHSHELL_COMMAND_REDIRECT_INPUT (1 << 0)        /* 命令行重定向输入到本命令 */
     uint32_t   flags;
 
     /**
@@ -122,6 +121,22 @@ extern int ehshell_command_run_form_string(ehshell_t *ehshell, const char *cmd_s
 extern struct stream_base *ehshell_command_stream(ehshell_cmd_context_t *cmd_context);
 
 /**
+ * @brief                   获取ehshell命令使用说明字符串
+ * @param  cmd_context      命令上下文指针
+ * @return const char*      返回ehshell命令使用说明字符串指针
+ */
+extern const char *ehshell_command_usage(ehshell_cmd_context_t *cmd_context);
+
+
+/**
+ * @brief                   获取ehshell命令输入环形缓冲区
+ * @param  cmd_context      命令上下文指针
+ * @param  readable_size    可读取数据大小指针,命令必须使用此处给出的大小进行读取
+ * @return eh_ringbuf_t*    返回ehshell命令输入环形缓冲区指针,失败返回NULL
+ */
+extern eh_ringbuf_t* ehshell_command_input_ringbuf(ehshell_cmd_context_t *cmd_context, int32_t *readable_size);
+
+/**
  * @brief                   获取ehshell实例
  * @param  cmd_context      命令上下文指针
  * @return ehshell_t*       返回ehshell实例指针
@@ -134,7 +149,19 @@ extern ehshell_t* ehshell_command_get_shell(ehshell_cmd_context_t *cmd_context);
  */
 extern void ehshell_command_finish(ehshell_cmd_context_t *cmd_context);
 
+/**
+ * @brief                   设置ehshell命令上下文用户数据
+ * @param  cmd_context      命令上下文指针
+ * @param  user_data        用户数据指针
+ */
+extern void ehshell_command_set_user_data(ehshell_cmd_context_t *cmd_context, void *user_data);
 
+/**
+ * @brief                   获取ehshell命令上下文用户数据
+ * @param  cmd_context      命令上下文指针
+ * @return void*            返回用户数据指针
+ */
+extern void *ehshell_command_get_user_data(ehshell_cmd_context_t *cmd_context);
 
 /**
  * @brief                   获取默认ehshell实例

@@ -33,6 +33,8 @@ enum ehshell_state{
     EHSHELL_INIT = 0,
     EHSHELL_STATE_RESET,
     EHSHELL_STATE_WAIT_INPUT,
+    EHSHELL_STATE_REDIRECT_INPUT_INIT,
+    EHSHELL_STATE_REDIRECT_INPUT,
 };
 
 
@@ -59,6 +61,7 @@ struct ehshell{
             uint16_t  linebuf_data_len;
         };
         uint32_t echo_pos;
+        uint32_t redirect_input_escape_parse_pos;
     };
     uint16_t  command_count;
     uint16_t  escape_char_match_state;
