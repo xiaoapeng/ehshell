@@ -318,7 +318,7 @@ static void ehshell_processor_input_ringbuf(ehshell_t *shell){
             enum ehshell_escape_char escape_char;
             escape_char = ehshell_escape_char_parse(shell, input);
             pl++;
-            if(isprint(escape_char)){
+            if(isprint((int)escape_char)){
                 int diff;
                 if(shell->cmd_current){
                     /* 如果当前有命令在执行，就直接回显 */
