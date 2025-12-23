@@ -347,7 +347,8 @@ static void ehshell_processor_input_ringbuf(ehshell_t *shell){
                 if(escape_char == ESCAPE_CHAR_NUL)
                     continue;
                 switch (escape_char) {
-                    case ESCAPE_CHAR_CTRL_J_LF:{
+                    case ESCAPE_CHAR_CTRL_J_LF:
+                    case ESCAPE_CHAR_CTRL_M_CR:{
                         eh_stream_puts((struct stream_base *)&shell->stream, "\r\n");
                         continue;
                     }
@@ -433,7 +434,8 @@ static void ehshell_processor_input_ringbuf(ehshell_t *shell){
                         ehshell_command_auto_complete(shell);
                         continue;
                     }
-                    case ESCAPE_CHAR_CTRL_J_LF:{
+                    case ESCAPE_CHAR_CTRL_J_LF:
+                    case ESCAPE_CHAR_CTRL_M_CR:{
                         eh_stream_puts((struct stream_base *)&shell->stream, "\r\n");
                         linebuf[shell->linebuf_data_len] = '\0';
                         if(shell->linebuf_data_len && _ehshell_command_run_form_string(shell, linebuf) == 0){
