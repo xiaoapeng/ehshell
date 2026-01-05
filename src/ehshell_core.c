@@ -42,7 +42,8 @@ static void ehshell_stream_write(void *ctx, const uint8_t *buf, size_t len){
 static void ehshell_stream_finish(void *ctx){
     struct stream_function_no_cache *stream = (struct stream_function_no_cache *)ctx;
     ehshell_t *shell = eh_container_of(stream, ehshell_t, stream);
-    shell->config->finish(shell);
+    if(shell->config->finish)
+        shell->config->finish(shell);
 }   
 
 static void ehshell_print_welcome(ehshell_t *shell){
@@ -301,8 +302,11 @@ static void ehshell_processor_input_ringbuf(ehshell_t *shell){
         tmp_ringbuf = shell->input_ringbuf;
     }
     chars_count = eh_ringbuf_size(tmp_ringbuf);
-    if(chars_count == 0)
+    if(chars_count == 0){
+        if(shell->cmd_current == NULL && shell->config->input_ringbuf_process_finish)
+            shell->config->input_ringbuf_process_finish(shell);
         return;
+    }
     /* 
      *  因为我们是环形缓冲区，所以读两次，必然可以零拷贝并取出所需数据
      */
