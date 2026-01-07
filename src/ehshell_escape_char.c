@@ -90,11 +90,8 @@ enum ehshell_escape_char ehshell_escape_char_parse(struct ehshell* shell, const 
                     shell->escape_char_parse_buf[shell->escape_char_parse_buf[0]+1] = input;
                 }
                 shell->escape_char_parse_buf[0]++;
-                if(shell->escape_char_parse_buf[0] >= EHSHELL_ESCAPE_CHAR_PARSE_BUF_SIZE - 1){
-                    /* 容量有限，未存储完整字符忽略解析 */
-                    shell->escape_char_match_state = EHSHELL_ESCAPE_MATCH_NONE;
-                    break;
-                }
+                if(shell->escape_char_parse_buf[0] >= EHSHELL_ESCAPE_CHAR_PARSE_BUF_SIZE - 1)
+                    goto reset;
                 /* 开始解析存有的字符 */
                 if(shell->escape_char_parse_buf[0] == 2 && shell->escape_char_parse_buf[2] == '~'){
                     switch (shell->escape_char_parse_buf[1]) {
