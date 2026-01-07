@@ -84,14 +84,14 @@ enum ehshell_escape_char ehshell_escape_char_parse(struct ehshell* shell, const 
             goto reset;
         }
         case EHSHELL_ESCAPE_MATCH_ESC_CSI:{
+            if(shell->escape_char_parse_buf[0] < EHSHELL_ESCAPE_CHAR_PARSE_BUF_SIZE -1){
+                shell->escape_char_parse_buf[shell->escape_char_parse_buf[0]+1] = input;
+                shell->escape_char_parse_buf[0]++;
+            }else{
+                goto reset;
+            }
             if(is_csi_final((uint8_t)input)){
                 shell->escape_char_match_state = EHSHELL_ESCAPE_MATCH_NONE;
-                if(shell->escape_char_parse_buf[0] < EHSHELL_ESCAPE_CHAR_PARSE_BUF_SIZE -1){
-                    shell->escape_char_parse_buf[shell->escape_char_parse_buf[0]+1] = input;
-                }
-                shell->escape_char_parse_buf[0]++;
-                if(shell->escape_char_parse_buf[0] >= EHSHELL_ESCAPE_CHAR_PARSE_BUF_SIZE - 1)
-                    goto reset;
                 /* 开始解析存有的字符 */
                 if(shell->escape_char_parse_buf[0] == 2 && shell->escape_char_parse_buf[2] == '~'){
                     switch (shell->escape_char_parse_buf[1]) {
@@ -126,12 +126,6 @@ enum ehshell_escape_char ehshell_escape_char_parse(struct ehshell* shell, const 
                 break;
             }
             if(!is_middle_byte((uint8_t)input) && !is_param_byte((uint8_t)input))
-                goto reset;
-            if(shell->escape_char_parse_buf[0] < EHSHELL_ESCAPE_CHAR_PARSE_BUF_SIZE -1){
-                shell->escape_char_parse_buf[shell->escape_char_parse_buf[0]+1] = input;
-            }
-            shell->escape_char_parse_buf[0]++;
-            if( (uint32_t)shell->escape_char_parse_buf[0] >= EHSHELL_ESCAPE_CHAR_MAX_LEN)
                 goto reset;
             break;
         }
