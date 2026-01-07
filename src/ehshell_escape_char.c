@@ -7,10 +7,7 @@
  * @copyright Copyright (c) 2025  simon.xiaoapeng@gmail.com
  * 
  */
-#include <string.h>
-#include <eh.h>
-#include <eh_module.h>
-#include <eh_debug.h>
+
 #include <ehshell.h>
 #include <ehshell_internal.h>
 #include <ehshell_escape_char.h>
