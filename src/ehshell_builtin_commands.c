@@ -35,6 +35,7 @@ static void do_help(ehshell_cmd_context_t *cmd_context, int argc, const char *ar
         eh_stream_printf(ehshell_command_stream(cmd_context), "%16s:\t\t\t%s\r\n", command_info_tab[i]->command, command_info_tab[i]->description);
     }
 quit:
+    eh_stream_finish(ehshell_command_stream(cmd_context));
     ehshell_command_finish(cmd_context);
 }
 
@@ -42,6 +43,14 @@ static void do_exit_mainloop(ehshell_cmd_context_t *cmd_context, int argc, const
     (void)argc;
     (void)argv;
     eh_signal_dispatch_loop_request_quit_from_task(eh_task_main());
+    ehshell_command_finish(cmd_context);
+}
+
+static void do_quit(ehshell_cmd_context_t *cmd_context, int argc, const char *argv[]){
+    (void)argc;
+    (void)argv;
+    eh_stream_printf(ehshell_command_stream(cmd_context), "Quit the current terminal session.\r\n\x03");
+    eh_stream_finish(ehshell_command_stream(cmd_context));
     ehshell_command_finish(cmd_context);
 }
 
@@ -59,6 +68,13 @@ static struct ehshell_command_info ehshell_command_info_tbl[] = {
         .usage = "exit-mainloop",
         .flags = 0,
         .do_function = do_exit_mainloop,
+        .do_event_function = NULL
+    },{
+        .command = "quit",
+        .description = "Exit the current terminal session.",
+        .usage = "quit",
+        .flags = 0,
+        .do_function = do_quit,
         .do_event_function = NULL
     }
 };
