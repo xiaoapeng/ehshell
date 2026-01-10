@@ -30,6 +30,7 @@ enum ehshell_escape_char{
     ESCAPE_CHAR_CTRL_W_DEL_WORD     = 0x0F,     /* 删除当前单词 */
     ESCAPE_CHAR_CTRL_Z              = 0x1A,     /* 发送退出信号 */
     ESCAPE_CHAR_CTRL_BACKSPACE_1    = 0x7f,     /* 删除前一个字符 */
+    ESCAPE_CHAR_CTRL_UTF8_START     = 0x80,     /* UTF-8 多字节字符开始 */
     ESCAPE_CHAR_CTRL_NOSTD_START    = 0xFF,     /* 非标准转义字符 */
     ESCAPE_CHAR_CTRL_RESET,                     /* 重置终端 */
     ESCAPE_CHAR_CTRL_HOME,                      /* 移动光标到行首 */
@@ -56,6 +57,7 @@ enum ehshell_escape_char{
 #define EHSHELL_ESCAPE_MATCH_ESC_SS3                ((uint16_t)0x06)        // after ESC O    
 #define EHSHELL_ESCAPE_MATCH_ESC_CSI                ((uint16_t)0x07)        // after ESC [
 #define EHSHELL_ESCAPE_MATCH_ESC_STRING_WAIT_ST     ((uint16_t)0x08)        // expecting ESC '\' terminator
+
 
 #ifdef __cplusplus
 #if __cplusplus

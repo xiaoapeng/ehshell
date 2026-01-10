@@ -36,18 +36,18 @@ static ehshell_t *ehshell_default_shell = NULL;
 static void ehshell_stream_write(void *ctx, const uint8_t *buf, size_t len){
     struct stream_function_no_cache *stream = (struct stream_function_no_cache *)ctx;
     ehshell_t *shell = eh_container_of(stream, ehshell_t, stream);
-    shell->config->write(shell, (const char *)buf, len);
+    shell->config->stream_write(shell, (const char *)buf, len);
 }
 
 static void ehshell_stream_finish(void *ctx){
     struct stream_function_no_cache *stream = (struct stream_function_no_cache *)ctx;
     ehshell_t *shell = eh_container_of(stream, ehshell_t, stream);
-    if(shell->config->finish)
-        shell->config->finish(shell);
+    if(shell->config->stream_finish)
+        shell->config->stream_finish(shell);
 }   
 
 static void ehshell_print_welcome(ehshell_t *shell){
-    shell->config->write(shell, EHSHELL_CONFIG_WELCOME, sizeof(EHSHELL_CONFIG_WELCOME) - 1);
+    shell->config->stream_write(shell, EHSHELL_CONFIG_WELCOME, sizeof(EHSHELL_CONFIG_WELCOME) - 1);
 }
 static void ehshell_print_prompt(ehshell_t *shell){
     if(shell->linebuf_data_len){
@@ -62,13 +62,28 @@ static void ehshell_print_prompt(ehshell_t *shell){
         eh_stream_printf((struct stream_base *)&shell->stream, "root@%s $ ", shell->config->host);
     }
 }
-
 static void ehshell_input_reset(ehshell_t *shell){
     shell->linebuf_pos = 0;
     shell->linebuf_data_len = 0;
     shell->escape_char_match_state = 0;
 }
 
+/* 判定是否为 UTF-8 的后续字节 (10xxxxxx) */
+#define ehshell_char_is_utf8_continuation(c) (((c) & 0xC0) == 0x80)
+
+static int ehshell_linebuf_pos_left_char_bytes(ehshell_t *shell) {
+    char *linebuf;
+    int bytes = 1;
+    if (shell->linebuf_pos == 0) return 0;
+    linebuf = ehshell_linebuf(shell);
+    // 只要前一个字节是“后续字节”，就说明它属于当前字符，继续向左跳
+    while (shell->linebuf_pos - bytes > 0 && 
+           ehshell_char_is_utf8_continuation(linebuf[shell->linebuf_pos - bytes])) {
+        bytes++;
+    }
+
+    return bytes;
+}
 
 static int _ehshell_command_run_form_string(ehshell_t *ehshell, char *cmd_str)
 {
@@ -322,7 +337,8 @@ static void ehshell_processor_input_ringbuf(ehshell_t *shell){
             enum ehshell_escape_char escape_char;
             escape_char = ehshell_escape_char_parse(shell, input);
             pl++;
-            if(isprint((int)escape_char)){
+            if(escape_char <= ESCAPE_CHAR_CTRL_NOSTD_START && 
+                (isprint((int)escape_char) || escape_char >= ESCAPE_CHAR_CTRL_UTF8_START)){
                 int diff;
                 if(shell->cmd_current){
                     /* 如果当前有命令在执行，就直接回显 */
@@ -418,16 +434,18 @@ static void ehshell_processor_input_ringbuf(ehshell_t *shell){
                     case ESCAPE_CHAR_CTRL_BACKSPACE_0:
                     case ESCAPE_CHAR_CTRL_BACKSPACE_1:{
                         int diff;
-                        if(shell->linebuf_pos == 0)
+                        uint16_t backspace_count = (uint16_t)ehshell_linebuf_pos_left_char_bytes(shell);
+                        if(backspace_count == 0)
                             continue;
                         if(shell->linebuf_pos == shell->linebuf_data_len){
-                            shell->linebuf_pos = --shell->linebuf_data_len;
-                            eh_stream_puts((struct stream_base *)&shell->stream, "\b \b");
+                            shell->linebuf_data_len -= backspace_count;
+                            shell->linebuf_pos = shell->linebuf_data_len;
+                            eh_stream_puts((struct stream_base *)&shell->stream, backspace_count <= 2 ? "\b \b" : "\b\b  \b\b");
                             continue;
                         }
-                        memmove(linebuf + shell->linebuf_pos -1, linebuf + shell->linebuf_pos, shell->linebuf_data_len - shell->linebuf_pos);
-                        shell->linebuf_data_len--;
-                        shell->linebuf_pos--;
+                        memmove(linebuf + shell->linebuf_pos - backspace_count, linebuf + shell->linebuf_pos, shell->linebuf_data_len - shell->linebuf_pos);
+                        shell->linebuf_data_len -= backspace_count;
+                        shell->linebuf_pos -= backspace_count;
                         diff = shell->linebuf_data_len - shell->linebuf_pos;
                         eh_stream_printf((struct stream_base *)&shell->stream, "\b%.*s \x1B[%dD", 
                             diff, linebuf + shell->linebuf_pos, diff+1);
@@ -701,7 +719,7 @@ int ehshell_command_run_form_string(ehshell_t *ehshell, const char *cmd_str){
 ehshell_t *ehshell_create(const struct ehshell_config *static_config){
     int ret;
     ehshell_t *shell;
-    if(!static_config || !static_config->input_linebuf_size  || !static_config->write)
+    if(!static_config || !static_config->input_linebuf_size  || !static_config->stream_write)
         return eh_error_to_ptr(EH_RET_INVALID_PARAM);
     if(static_config->input_ringbuf_size < sizeof(uint32_t) * 2){
         eh_merrfl( EHSHELL,"input_ringbuf_size %d is too small, sizeof(uint32_t) * 2 %d", static_config->input_ringbuf_size, sizeof(uint32_t) * 2);

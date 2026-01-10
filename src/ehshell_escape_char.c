@@ -32,7 +32,7 @@ enum ehshell_escape_char ehshell_escape_char_parse(struct ehshell* shell, const 
                 shell->escape_char_parse_buf[0] = '\0';
                 break;
             }
-            return (enum ehshell_escape_char)input;
+            return (enum ehshell_escape_char)(uint8_t)input;
         }
         case EHSHELL_ESCAPE_MATCH_ESC:{
             if(input == '['){

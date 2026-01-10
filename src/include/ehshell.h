@@ -27,8 +27,8 @@ typedef struct eh_event_flags eh_event_flags_t;
 struct stream_base;
 
 struct ehshell_config{
-    void (*write)(ehshell_t* ehshell, const char *buf, size_t len);
-    void (*finish)(ehshell_t* ehshell);
+    void (*stream_write)(ehshell_t* ehshell, const char *buf, size_t len);
+    void (*stream_finish)(ehshell_t* ehshell);
     void (*input_ringbuf_process_finish)(ehshell_t* ehshell);
     const char *host;
     uint16_t input_ringbuf_size;

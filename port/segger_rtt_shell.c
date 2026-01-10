@@ -52,8 +52,8 @@ static const struct ehshell_config shell_config = {
     .host = "eventos-rtt",
     .input_linebuf_size = CONFIG_PACKAGE_EHSHELL_BUILTIN_SHELL_LINE_BUFFER_SIZE,
     .input_ringbuf_size = CONFIG_PACKAGE_EHSHELL_BUILTIN_SHELL_INPUT_BUFFER_SIZE,
-    .write = rtt_shell_write,
-    .finish = NULL,
+    .stream_write = rtt_shell_write,
+    .stream_finish = NULL,
     .input_ringbuf_process_finish = NULL,
     .max_command_count = 10,
 };
