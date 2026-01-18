@@ -18,9 +18,9 @@ extern "C"{
 #endif
 #endif /* __cplusplus */
 
-#define ehshell_module_default_shell_export(_init__func_, _exit__func_)     _eh_define_module_export(_init__func_, _exit__func_, "3.0.0")
-#define ehshell_module_default_command_export(_init__func_, _exit__func_)     _eh_define_module_export(_init__func_, _exit__func_, "3.0.1")
-
+#define ehshell_module_core_export(_init__func_, _exit__func_)        _eh_define_module_export(_init__func_, _exit__func_, "3.0.0")
+#define ehshell_module_command_export(_init__func_, _exit__func_)     _eh_define_module_export(_init__func_, _exit__func_, "3.0.1")
+#define ehshell_module_shell_export(_init__func_, _exit__func_)       _eh_define_module_export(_init__func_, _exit__func_, "3.0.1")
 #ifdef __cplusplus
 #if __cplusplus
 }

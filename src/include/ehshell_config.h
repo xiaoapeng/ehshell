@@ -20,10 +20,17 @@ extern "C"{
 
 
 /**
- * @brief 最大后台运行的命令数量
+ * @brief 单个shell最大后台运行的命令数量
  */
 #ifndef EHSHELL_CONFIG_MAX_BACKGROUND_COMMAND_SIZE
 #define EHSHELL_CONFIG_MAX_BACKGROUND_COMMAND_SIZE (4)
+#endif
+
+/**
+ * @brief 最大命令数量
+ */
+#ifndef EHSHELL_CONFIG_MAX_COMMAND_SIZE
+#define EHSHELL_CONFIG_MAX_COMMAND_SIZE (24)
 #endif
 
 #ifndef EHSHELL_CONFIG_WELCOME

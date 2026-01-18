@@ -63,25 +63,22 @@ struct ehshell{
         uint32_t echo_pos;
         uint32_t redirect_input_escape_parse_pos;
     };
-    uint16_t  command_count;
     uint16_t  escape_char_match_state;
 #define EHSHELL_ESCAPE_CHAR_PARSE_BUF_SIZE 4
     char      escape_char_parse_buf[EHSHELL_ESCAPE_CHAR_PARSE_BUF_SIZE];
 };
 
-
-
-#define ehshell_command_info_tab(ehshell) ((const struct ehshell_command_info**)(ehshell + 1))
-
-#define ehshell_linebuf(ehshell) ((char*)(ehshell + 1) + sizeof(struct ehshell_command_info*) * ehshell->config->max_command_count)
-
-extern int ehshell_register_builtin_commands(ehshell_t* ehshell);
+#define ehshell_linebuf(ehshell) ((char*)(ehshell + 1))
 
 extern size_t ehshell_builtin_commands_count(void);
 
 extern enum ehshell_escape_char ehshell_escape_char_parse(struct ehshell* shell, const char input);
 
 const struct ehshell_command_info* ehshell_command_find(ehshell_t *ehshell, const char *command);
+
+extern size_t ehshell_commands_count(void);
+
+extern const struct ehshell_command_info  *ehshell_command_get(size_t index);
 
 #ifdef __cplusplus
 #if __cplusplus

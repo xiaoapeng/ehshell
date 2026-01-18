@@ -33,7 +33,6 @@ struct ehshell_config{
     const char *host;
     uint16_t input_ringbuf_size;
     uint16_t input_linebuf_size;
-    uint32_t max_command_count;
 };
 
 enum ehshell_event{
@@ -163,20 +162,14 @@ extern void ehshell_command_set_user_data(ehshell_cmd_context_t *cmd_context, vo
  */
 extern void *ehshell_command_get_user_data(ehshell_cmd_context_t *cmd_context);
 
-/**
- * @brief                   获取默认ehshell实例
- * @return ehshell_t*       返回默认ehshell实例指针
- */
-extern ehshell_t* ehshell_default(void);
 
 /**
  * @brief                   注册命令
- * @param  ehshell          ehshell实例指针
  * @param  command_info     命令信息指针, 必须是静态数组,或者生命周期大于ehshell实例生命周期
  * @param  command_info_num 命令信息数组大小
  * @return int              成功返回0, 失败返回负数
  */
-extern int ehshell_register_commands(ehshell_t *ehshell, const struct ehshell_command_info *command_info, size_t command_info_num);
+extern int ehshell_register_commands(const struct ehshell_command_info *command_info, size_t command_info_num);
 
 
 

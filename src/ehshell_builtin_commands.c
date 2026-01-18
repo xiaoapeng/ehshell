@@ -11,9 +11,11 @@
 #include <eh_error.h>
 #include <eh_formatio.h>
 #include <ehshell.h>
+#include <ehshell_module.h>
 #include <ehshell_internal.h>
 
 static void do_help(ehshell_cmd_context_t *cmd_context, int argc, const char *argv[]){
+    size_t command_count;
     if(argc > 2){
         /* 参数太多 */
         eh_stream_printf(ehshell_command_stream(cmd_context), "Parameter too many.\r\n");
@@ -30,9 +32,9 @@ static void do_help(ehshell_cmd_context_t *cmd_context, int argc, const char *ar
         goto quit;
     }
     /* 打印所有命令 */
-    const struct ehshell_command_info** command_info_tab = ehshell_command_info_tab(ehshell_command_get_shell(cmd_context));
-    for(size_t i = 0; i < ehshell_command_get_shell(cmd_context)->command_count; i++){
-        eh_stream_printf(ehshell_command_stream(cmd_context), "%16s:\t\t\t%s\r\n", command_info_tab[i]->command, command_info_tab[i]->description);
+    command_count = ehshell_commands_count();
+    for(size_t i = 0; i < command_count; i++){
+        eh_stream_printf(ehshell_command_stream(cmd_context), "%16s:\t\t\t%s\r\n", ehshell_command_get(i)->command, ehshell_command_get(i)->description);
     }
 quit:
     eh_stream_finish(ehshell_command_stream(cmd_context));
@@ -83,13 +85,8 @@ size_t ehshell_builtin_commands_count(void){
     return EH_ARRAY_SIZE(ehshell_command_info_tbl);
 }
 
-int ehshell_register_builtin_commands(ehshell_t* ehshell){
-    int ret;
-    ret = ehshell_register_commands(ehshell, ehshell_command_info_tbl, EH_ARRAY_SIZE(ehshell_command_info_tbl));
-    if(ret < 0)
-        return ret;
-    return 0;
+static int __init  builtin_commands_register_init(void){
+    return ehshell_register_commands( ehshell_command_info_tbl, EH_ARRAY_SIZE(ehshell_command_info_tbl));
 }
-
-
+ehshell_module_command_export(builtin_commands_register_init, NULL);
 

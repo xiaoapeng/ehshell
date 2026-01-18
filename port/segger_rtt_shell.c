@@ -55,7 +55,6 @@ static const struct ehshell_config shell_config = {
     .stream_write = rtt_shell_write,
     .stream_finish = NULL,
     .input_ringbuf_process_finish = NULL,
-    .max_command_count = 10,
 };
 
 static eh_loop_poll_task_t s_shell_read_char_poll_task = {
@@ -80,4 +79,4 @@ void __exit rtt_shell_io_exit(void){
     eh_loop_poll_task_del(&s_shell_read_char_poll_task);
 }
 
-ehshell_module_default_shell_export(rtt_shell_io_init, rtt_shell_io_exit);
+ehshell_module_shell_export(rtt_shell_io_init, rtt_shell_io_exit);

@@ -23,15 +23,26 @@
 #include <eh_signal.h>
 
 #include <ehshell.h>
+#include <ehshell_module.h>
 #include <ehshell_internal.h>
 #include <ehshell_escape_char.h>
+#include <sys/_intsup.h>
 
 
 #ifndef EH_DBG_MODEULE_LEVEL_EHSHELL
 #define EH_DBG_MODEULE_LEVEL_EHSHELL EH_DBG_INFO
 #endif
 
-static ehshell_t *ehshell_default_shell = NULL;
+static const struct ehshell_command_info  * ehshell_commands[EHSHELL_CONFIG_MAX_COMMAND_SIZE];
+static size_t ehshell_command_count = 0;
+
+size_t ehshell_commands_count(void){
+    return ehshell_command_count;
+}
+
+const struct ehshell_command_info  * ehshell_command_get(size_t index){
+    return ehshell_commands[index];
+}
 
 static void ehshell_stream_write(void *ctx, const uint8_t *buf, size_t len){
     struct stream_function_no_cache *stream = (struct stream_function_no_cache *)ctx;
@@ -180,7 +191,6 @@ static void ehshell_command_auto_complete(ehshell_t *shell){
     bool is_multi_match = false;
     size_t completion_len = 0;
     size_t diff;
-    const struct ehshell_command_info** command_info_tab = ehshell_command_info_tab(shell);
     if(linebuf_pos == 0){
         return;
     }
@@ -190,8 +200,8 @@ static void ehshell_command_auto_complete(ehshell_t *shell){
             return;
         }
     }
-    for(size_t i=0; i < shell->command_count; i++){
-        const struct ehshell_command_info *command_info = command_info_tab[i];
+    for(size_t i=0; i < ehshell_command_count; i++){
+        const struct ehshell_command_info *command_info = ehshell_commands[i];
         if(strncmp(cmd, command_info->command, linebuf_pos) == 0){
             if(first_completion == NULL){
                 first_completion = command_info->command;
@@ -612,7 +622,6 @@ static ehshell_cmd_context_t *ehshell_cmd_context_create(ehshell_t *ehshell, con
 }
 
 const struct ehshell_command_info* ehshell_command_find(ehshell_t *ehshell, const char *command){
-    const struct ehshell_command_info** command_info_tab = ehshell_command_info_tab(ehshell);
     size_t start_pos = 0;
     size_t end_pos;
     size_t pos;
@@ -620,10 +629,10 @@ const struct ehshell_command_info* ehshell_command_find(ehshell_t *ehshell, cons
     if( ehshell == NULL || command == NULL ){
         return NULL;
     }
-    end_pos = ehshell->command_count;
+    end_pos = ehshell_command_count;
     pos = (start_pos + end_pos) / 2;
     while(start_pos < end_pos){
-        cmp = strcmp(command, command_info_tab[pos]->command);
+        cmp = strcmp(command, ehshell_commands[pos]->command);
         if(cmp == 0){
             /* 找到命令 */
             break;
@@ -637,7 +646,7 @@ const struct ehshell_command_info* ehshell_command_find(ehshell_t *ehshell, cons
     if(cmp != 0){
         return NULL;
     }
-    return command_info_tab[pos];
+    return ehshell_commands[pos];
 }
 
 int ehshell_command_run(ehshell_t *ehshell, int argc, const char *argv[]){
@@ -725,12 +734,12 @@ ehshell_t *ehshell_create(const struct ehshell_config *static_config){
         eh_merrfl( EHSHELL,"input_ringbuf_size %d is too small, sizeof(uint32_t) * 2 %d", static_config->input_ringbuf_size, sizeof(uint32_t) * 2);
         return eh_error_to_ptr(EH_RET_INVALID_PARAM);
     }
-    if(static_config->max_command_count < ehshell_builtin_commands_count()){
-        eh_merrfl( EHSHELL,"max_command_size %d is too small, builtin commands count %d", static_config->max_command_count, ehshell_builtin_commands_count());
+    if(EHSHELL_CONFIG_MAX_COMMAND_SIZE < ehshell_builtin_commands_count()){
+        eh_merrfl( EHSHELL,"max_command_size %d is too small, builtin commands count %d", EHSHELL_CONFIG_MAX_COMMAND_SIZE, ehshell_builtin_commands_count());
         return eh_error_to_ptr(EH_RET_INVALID_PARAM);
     }
     
-    shell = eh_malloc(sizeof(ehshell_t) + static_config->max_command_count * sizeof(struct ehshell_command_info*) + static_config->input_linebuf_size);
+    shell = eh_malloc(sizeof(ehshell_t) + static_config->input_linebuf_size);
     if(!shell)
         return eh_error_to_ptr(EH_RET_MALLOC_ERROR);
     bzero(shell, sizeof(ehshell_t));
@@ -740,17 +749,11 @@ ehshell_t *ehshell_create(const struct ehshell_config *static_config){
     if(ret < 0){
         goto err_input_ringbuf_create;
     }
-    shell->command_count = 0;
     shell->linebuf_pos = 0;
     shell->linebuf_data_len = 0;
     shell->state = EHSHELL_INIT;
 
     eh_stream_function_no_cache_init(&shell->stream, ehshell_stream_write, ehshell_stream_finish);
-
-    ret = ehshell_register_builtin_commands(shell);
-    if(ret < 0){
-        goto err_ehshell_register_builtin_commands;
-    }
 
     eh_signal_init(&shell->sig_notify_process);
     eh_signal_slot_init(&shell->sig_notify_process_slot, ehshell_processor, shell);
@@ -760,11 +763,8 @@ ehshell_t *ehshell_create(const struct ehshell_config *static_config){
         goto err_eh_signal_slot_connect;
     }
     ehshell_notify_processor(shell);
-    if(!ehshell_default_shell)
-        ehshell_default_shell = shell;
     return shell;
 err_eh_signal_slot_connect:
-err_ehshell_register_builtin_commands:
     eh_ringbuf_destroy(shell->input_ringbuf);
 err_input_ringbuf_create:
     eh_free(shell);
@@ -774,8 +774,6 @@ err_input_ringbuf_create:
 void ehshell_destroy(ehshell_t *ehshell){
     if(!ehshell)
         return;
-    if(ehshell_default_shell == ehshell)
-        ehshell_default_shell = NULL;
     for(size_t i = 0; i < EHSHELL_CONFIG_MAX_BACKGROUND_COMMAND_SIZE; i++){
         if(ehshell->cmd_background[i]){
             if(ehshell->cmd_background[i]->command_info->do_event_function){
@@ -843,32 +841,32 @@ ehshell_t* ehshell_command_get_shell(ehshell_cmd_context_t *cmd_context){
     return cmd_context->ehshell;
 }
 
-ehshell_t *ehshell_default(void){
-    return ehshell_default_shell;
-}
-
-int ehshell_register_commands(ehshell_t *ehshell, const struct ehshell_command_info *command_info, size_t command_info_num){
-    const struct ehshell_command_info **commands;
-    if(!ehshell || !command_info || command_info_num == 0)
+int ehshell_register_commands(const struct ehshell_command_info *command_info, size_t command_info_num){
+    if(!command_info || command_info_num == 0)
         return EH_RET_INVALID_PARAM;
-    if(ehshell->command_count + command_info_num > ehshell->config->max_command_count){
-        eh_merrfl( EHSHELL,"command_info_num %d is too large, max_command_size %d", command_info_num, ehshell->config->max_command_count);
+    if(ehshell_command_count + command_info_num > EHSHELL_CONFIG_MAX_COMMAND_SIZE){
+        eh_merrfl( EHSHELL,"command_info_num %d is too large, max_command_size %d", command_info_num, EHSHELL_CONFIG_MAX_COMMAND_SIZE);
         return EH_RET_INVALID_PARAM;
     }
-    commands = ehshell_command_info_tab(ehshell);
     /* 循环插入有序数组中 */
     for(size_t i = 0; i < command_info_num; i++){
         size_t j;
-        for(j = 0; j < ehshell->command_count; j++){
-            if(strcmp(command_info[i].command, commands[j]->command) < 0){
+        for(j = 0; j < ehshell_command_count; j++){
+            if(strcmp(command_info[i].command, ehshell_commands[j]->command) < 0){
                 break;
             }
         }
-        memmove(commands + j + 1, commands + j, (ehshell->command_count - j) * sizeof(struct ehshell_command_info*));
-        commands[j] = &command_info[i];
-        ehshell->command_count++;
+        memmove(ehshell_commands + j + 1, ehshell_commands + j, (ehshell_command_count - j) * sizeof(struct ehshell_command_info*));
+        ehshell_commands[j] = &command_info[i];
+        ehshell_command_count++;
     }
     return EH_RET_OK;
 }
+
+static int __init  ehshell_core_init(void){
+    ehshell_command_count = 0;
+    return 0;
+}
+ehshell_module_core_export(ehshell_core_init, NULL);
 
 
