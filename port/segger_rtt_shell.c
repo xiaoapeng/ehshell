@@ -16,7 +16,6 @@
 #include <ehshell.h>
 #include <ehshell_module.h>
 #include <stdint.h>
-#include <sys/_intsup.h>
 
 #include <SEGGER_RTT.h>
 
