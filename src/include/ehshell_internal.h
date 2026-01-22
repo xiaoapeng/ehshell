@@ -13,9 +13,10 @@
 
 #include <stdint.h>
 #include <eh.h>
+#include <eh_types.h>
 #include <eh_signal.h>
 #include <eh_formatio.h>
-#include "ehshell_config.h"
+#include <ehshell_config.h>
 
 #ifdef __cplusplus
 #if __cplusplus
@@ -37,7 +38,6 @@ enum ehshell_state{
     EHSHELL_STATE_REDIRECT_INPUT,
 };
 
-
 typedef struct ehshell_cmd_context{
     void                                *user_data;
     const struct ehshell_command_info   *command_info;
@@ -46,14 +46,17 @@ typedef struct ehshell_cmd_context{
     uint32_t                             flags;
 }ehshell_cmd_context_t;
 
+#ifdef CONFIG_PACKAGE_EHSHELL_USE_PASSWORD
+
+#endif /* CONFIG_PACKAGE_EHSHELL_USE_PASSWORD */
 struct ehshell{
     const struct ehshell_config *config;
     eh_ringbuf_t *input_ringbuf;
-    ehshell_cmd_context_t *cmd_background[EHSHELL_CONFIG_MAX_BACKGROUND_COMMAND_SIZE];
-    ehshell_cmd_context_t *cmd_current;
+    ehshell_cmd_context_t *cmd_background[CONFIG_PACKAGE_EHSHELL_MAX_BACKGROUND_COMMAND_SIZE];
+    ehshell_cmd_context_t cmd_current;
     struct stream_function_no_cache stream;
     eh_signal_base_t    sig_notify_process;
-    eh_signal_slot_t    sig_notify_process_slot;
+    eh_signal_slot_t    slot_notify_process;
     enum ehshell_state state;
     union{
         struct{
@@ -64,13 +67,21 @@ struct ehshell{
         uint32_t redirect_input_escape_parse_pos;
     };
     uint16_t  escape_char_match_state;
+
+#ifdef CONFIG_PACKAGE_EHSHELL_USE_PASSWORD
+    uint64_t            login_hash;
+#if CONFIG_PACKAGE_EHSHELL_PASSWORD_TIMEOUT > 0
+    eh_signal_slot_t    slot_1s_timer_process;
+    uint32_t            login_downcounter;
+#endif
+#endif
+
 #define EHSHELL_ESCAPE_CHAR_PARSE_BUF_SIZE 4
     char      escape_char_parse_buf[EHSHELL_ESCAPE_CHAR_PARSE_BUF_SIZE];
 };
 
 #define ehshell_linebuf(ehshell) ((char*)(ehshell + 1))
-
-extern size_t ehshell_builtin_commands_count(void);
+#define ehshell_current_command_context(ehshell) ((ehshell->cmd_current.command_info) ? &ehshell->cmd_current : NULL)
 
 extern enum ehshell_escape_char ehshell_escape_char_parse(struct ehshell* shell, const char input);
 

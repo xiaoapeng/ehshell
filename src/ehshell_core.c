@@ -21,6 +21,7 @@
 
 #include <eh_formatio.h>
 #include <eh_signal.h>
+#include <eh_comp_timer.h>
 
 #include <ehshell.h>
 #include <ehshell_module.h>
@@ -33,7 +34,7 @@
 #define EH_DBG_MODEULE_LEVEL_EHSHELL EH_DBG_INFO
 #endif
 
-static const struct ehshell_command_info  * ehshell_commands[EHSHELL_CONFIG_MAX_COMMAND_SIZE];
+static const struct ehshell_command_info  * ehshell_commands[CONFIG_PACKAGE_EHSHELL_MAX_COMMAND_SIZE];
 static size_t ehshell_command_count = 0;
 
 size_t ehshell_commands_count(void){
@@ -78,6 +79,13 @@ static void ehshell_input_reset(ehshell_t *shell){
     shell->linebuf_data_len = 0;
     shell->escape_char_match_state = 0;
 }
+
+#ifdef CONFIG_PACKAGE_EHSHELL_USE_PASSWORD
+static void ehshell_run_login(ehshell_t *shell){
+    const char *argv[1] = {"login"};
+    ehshell_command_run(shell, 1, argv);
+}
+#endif
 
 /* 判定是否为 UTF-8 的后续字节 (10xxxxxx) */
 #define ehshell_char_is_utf8_continuation(c) (((c) & 0xC0) == 0x80)
@@ -173,6 +181,8 @@ static int _ehshell_command_run_form_string(ehshell_t *ehshell, char *cmd_str)
         eh_stream_finish((struct stream_base *)&ehshell->stream);
         return EH_RET_INVALID_PARAM;  /* 引号未闭合 */
     }
+    if(argc == 0)
+        return EH_RET_INVALID_PARAM;
     /* 调用执行函数 */
     return ehshell_command_run(ehshell, argc, argv);
 }
@@ -243,8 +253,7 @@ static void ehshell_command_auto_complete(ehshell_t *shell){
 }
 
 static void ehshell_processor_input_ringbuf_redirect_init(ehshell_t *shell){
-    ehshell_cmd_context_t *cmd_current;
-    cmd_current = shell->cmd_current;
+    ehshell_cmd_context_t *cmd_current = ehshell_current_command_context(shell);
     if(eh_unlikely(cmd_current == NULL)){
         eh_mwarnfl(EHSHELL, "redirect input without command context");
         goto status_reset;
@@ -297,9 +306,9 @@ static void ehshell_processor_input_ringbuf_redirect(ehshell_t *shell){
 next:
     eh_ringbuf_read_skip(&peek_ringbuf, (int32_t)pl);
     shell->redirect_input_escape_parse_pos = peek_ringbuf.r;
-    if(shell->cmd_current->command_info->do_event_function){
-        shell->cmd_current->command_info->do_event_function(
-            shell->cmd_current, EHSHELL_EVENT_RECEIVE_INPUT_DATA | (is_request_quit ? EHSHELL_EVENT_SIGINT_REQUEST_QUIT : 0));
+    if(shell->cmd_current.command_info->do_event_function){
+        shell->cmd_current.command_info->do_event_function(
+            &shell->cmd_current, EHSHELL_EVENT_RECEIVE_INPUT_DATA | (is_request_quit ? EHSHELL_EVENT_SIGINT_REQUEST_QUIT : 0));
     }
     if(is_request_quit){
         ehshell_notify_processor(shell);
@@ -313,8 +322,9 @@ static void ehshell_processor_input_ringbuf(ehshell_t *shell){
     eh_ringbuf_t *tmp_ringbuf;
     char *linebuf = ehshell_linebuf(shell);
     eh_ringbuf_t peek_ringbuf;
+    ehshell_cmd_context_t *cmd_current = ehshell_current_command_context(shell);
 
-    if(shell->cmd_current){
+    if(cmd_current){
         /* 
         * 因为我们足够了解eh_ringbuf的实现，
         * 所以我们可以直接修改tmp_ringbuf的r指针，
@@ -328,10 +338,14 @@ static void ehshell_processor_input_ringbuf(ehshell_t *shell){
     }
     chars_count = eh_ringbuf_size(tmp_ringbuf);
     if(chars_count == 0){
-        if(shell->cmd_current == NULL && shell->config->input_ringbuf_process_finish)
+        if(cmd_current == NULL && shell->config->input_ringbuf_process_finish)
             shell->config->input_ringbuf_process_finish(shell);
         return;
     }
+    
+#if CONFIG_PACKAGE_EHSHELL_PASSWORD_TIMEOUT > 0
+    shell->login_downcounter = CONFIG_PACKAGE_EHSHELL_PASSWORD_TIMEOUT;
+#endif
     /* 
      *  因为我们是环形缓冲区，所以读两次，必然可以零拷贝并取出所需数据
      */
@@ -350,7 +364,7 @@ static void ehshell_processor_input_ringbuf(ehshell_t *shell){
             if(escape_char <= ESCAPE_CHAR_CTRL_NOSTD_START && 
                 (isprint((int)escape_char) || escape_char >= ESCAPE_CHAR_CTRL_UTF8_START)){
                 int diff;
-                if(shell->cmd_current){
+                if(cmd_current){
                     /* 如果当前有命令在执行，就直接回显 */
                     eh_stream_putc((struct stream_base *)&shell->stream, (char)escape_char);
                     continue;
@@ -373,7 +387,7 @@ static void ehshell_processor_input_ringbuf(ehshell_t *shell){
                 shell->linebuf_data_len++;
                 continue;
             }
-            if(shell->cmd_current){
+            if(cmd_current){
                 if(escape_char == ESCAPE_CHAR_NUL)
                     continue;
                 switch (escape_char) {
@@ -424,8 +438,8 @@ static void ehshell_processor_input_ringbuf(ehshell_t *shell){
                     eh_stream_putc((struct stream_base *)&shell->stream, (char)(escape_char - ESCAPE_CHAR_CTRL_A + 'A'));
                     if(escape_char == ESCAPE_CHAR_CTRL_C_SIGINT && pl == chars_count){
                         /* 发送SIGINT信号 */
-                        if(shell->cmd_current->command_info->do_event_function){
-                            shell->cmd_current->command_info->do_event_function(shell->cmd_current, EHSHELL_EVENT_SIGINT_REQUEST_QUIT);
+                        if(cmd_current->command_info->do_event_function){
+                            cmd_current->command_info->do_event_function(cmd_current, EHSHELL_EVENT_SIGINT_REQUEST_QUIT);
                         }
                         goto status_refresh;
                     }
@@ -549,7 +563,7 @@ status_refresh:
 // quit:
     eh_stream_finish((struct stream_base *)&shell->stream);
     eh_ringbuf_read_skip(tmp_ringbuf, pl);
-    if(shell->cmd_current){
+    if(ehshell_current_command_context(shell)){
         shell->echo_pos = tmp_ringbuf->r;
     }
     return ;
@@ -560,8 +574,13 @@ static void ehshell_processor(eh_event_t *e, void *slot_param){
     ehshell_t *shell = (ehshell_t *)slot_param;
     switch (shell->state) {
         case EHSHELL_INIT:
-            ehshell_print_welcome(shell);
+            ehshell_print_welcome(shell);            
+#ifdef CONFIG_PACKAGE_EHSHELL_USE_PASSWORD
+            ehshell_run_login(shell);
+            break;
+#else
             _fallthrough;
+#endif
         case EHSHELL_STATE_RESET:
             ehshell_input_reset(shell);
             ehshell_print_prompt(shell);
@@ -581,40 +600,60 @@ static void ehshell_processor(eh_event_t *e, void *slot_param){
     }
 }
 
+#if CONFIG_PACKAGE_EHSHELL_PASSWORD_TIMEOUT > 0
+static void ehshell_password_timer_1s_processor(eh_event_t *e, void *slot_param){
+    (void)e;
+    ehshell_t *shell = (ehshell_t *)slot_param;
+    if(ehshell_current_command_context(shell))
+        return ;
+
+    if(shell->login_downcounter){
+        shell->login_downcounter--;
+    }else{
+        /* 超时未输入密码，运行登录命令 */
+        ehshell_run_login(shell);
+    }
+
+}
+#endif
+
 static ehshell_cmd_context_t *ehshell_cmd_context_create(ehshell_t *ehshell, const struct ehshell_command_info *command_info, bool is_background){
-    ehshell_cmd_context_t *ctx;
+    ehshell_cmd_context_t *ctx, *cmd_current;
     int idx = -1;
+     
+    cmd_current = ehshell_current_command_context(ehshell);
     if(is_background){
-        for(int i = 0; i < EHSHELL_CONFIG_MAX_BACKGROUND_COMMAND_SIZE; i++){
+        for(int i = 0; i < CONFIG_PACKAGE_EHSHELL_MAX_BACKGROUND_COMMAND_SIZE; i++){
             if(!ehshell->cmd_background[i]){
                 idx = i;
                 break;
             }
         }
         if(idx < 0){
-            eh_stream_printf((struct stream_base *)&ehshell->stream, "ehshell: background command overflow %d, command %s\r\n", EHSHELL_CONFIG_MAX_BACKGROUND_COMMAND_SIZE, command_info->command);
+            eh_stream_printf((struct stream_base *)&ehshell->stream, "ehshell: background command overflow %d, command %s\r\n", CONFIG_PACKAGE_EHSHELL_MAX_BACKGROUND_COMMAND_SIZE, command_info->command);
             eh_stream_finish((struct stream_base *)&ehshell->stream);
             return eh_error_to_ptr(EH_RET_INVALID_PARAM);
         }
+        ctx = eh_malloc(sizeof(ehshell_cmd_context_t));
     }else{
-        if(ehshell->cmd_current){
-            eh_stream_printf((struct stream_base *)&ehshell->stream, "ehshell: current command %s is running, command %s\r\n", ehshell->cmd_current->command_info->command, command_info->command);
+        if(cmd_current){
+            eh_stream_printf((struct stream_base *)&ehshell->stream, "ehshell: current command %s is running, command %s\r\n", cmd_current->command_info->command, command_info->command);
             eh_stream_finish((struct stream_base *)&ehshell->stream);
             return eh_error_to_ptr(EH_RET_INVALID_PARAM);
         }
+        ctx = &ehshell->cmd_current;
     }
-    ctx = eh_malloc(sizeof(ehshell_cmd_context_t));
     if(!ctx)
         return eh_error_to_ptr(EH_RET_MALLOC_ERROR);
     ctx->ehshell = ehshell;
     ctx->command_info = command_info;
     ctx->user_data = NULL;
-    ctx->flags = is_background ? EHSHELL_CMD_CONTEXT_FLAG_BACKGROUND : 0;
     if(is_background){
         ehshell->cmd_background[idx] = ctx;
         ehshell->state = EHSHELL_STATE_RESET;
+        ctx->flags = EHSHELL_CMD_CONTEXT_FLAG_BACKGROUND;
     }else{
-        ehshell->cmd_current = ctx;
+        ctx->flags = 0;
         if(command_info->flags & EHSHELL_COMMAND_REDIRECT_INPUT)
             ehshell->state = EHSHELL_STATE_REDIRECT_INPUT_INIT;
     }
@@ -694,15 +733,19 @@ void ehshell_command_finish(ehshell_cmd_context_t *cmd_context){
     ehshell_t *ehshell = cmd_context->ehshell;
     if(ehshell){
         if(cmd_context->flags & EHSHELL_CMD_CONTEXT_FLAG_BACKGROUND){
-            for(int i = 0; i < EHSHELL_CONFIG_MAX_BACKGROUND_COMMAND_SIZE; i++){
+            for(int i = 0; i < CONFIG_PACKAGE_EHSHELL_MAX_BACKGROUND_COMMAND_SIZE; i++){
                 if(ehshell->cmd_background[i] == cmd_context){
                     ehshell->cmd_background[i] = NULL;
                     break;
                 }
             }
+            eh_free(cmd_context);
         }else{
-            if(ehshell->cmd_current == cmd_context){
-                ehshell->cmd_current = NULL;
+            if(&ehshell->cmd_current == cmd_context){
+#if CONFIG_PACKAGE_EHSHELL_PASSWORD_TIMEOUT > 0
+                ehshell->login_downcounter = CONFIG_PACKAGE_EHSHELL_PASSWORD_TIMEOUT;
+#endif
+                ehshell->cmd_current.command_info = NULL;
                 ehshell->state = EHSHELL_STATE_RESET;
                 ehshell_notify_processor(ehshell);
             }else{
@@ -710,7 +753,6 @@ void ehshell_command_finish(ehshell_cmd_context_t *cmd_context){
             }
         }
     }
-    eh_free(cmd_context);
 }
 
 
@@ -734,11 +776,7 @@ ehshell_t *ehshell_create(const struct ehshell_config *static_config){
         eh_merrfl( EHSHELL,"input_ringbuf_size %d is too small, sizeof(uint32_t) * 2 %d", static_config->input_ringbuf_size, sizeof(uint32_t) * 2);
         return eh_error_to_ptr(EH_RET_INVALID_PARAM);
     }
-    if(EHSHELL_CONFIG_MAX_COMMAND_SIZE < ehshell_builtin_commands_count()){
-        eh_merrfl( EHSHELL,"max_command_size %d is too small, builtin commands count %d", EHSHELL_CONFIG_MAX_COMMAND_SIZE, ehshell_builtin_commands_count());
-        return eh_error_to_ptr(EH_RET_INVALID_PARAM);
-    }
-    
+
     shell = eh_malloc(sizeof(ehshell_t) + static_config->input_linebuf_size);
     if(!shell)
         return eh_error_to_ptr(EH_RET_MALLOC_ERROR);
@@ -756,14 +794,29 @@ ehshell_t *ehshell_create(const struct ehshell_config *static_config){
     eh_stream_function_no_cache_init(&shell->stream, ehshell_stream_write, ehshell_stream_finish);
 
     eh_signal_init(&shell->sig_notify_process);
-    eh_signal_slot_init(&shell->sig_notify_process_slot, ehshell_processor, shell);
+    eh_signal_slot_init(&shell->slot_notify_process, ehshell_processor, shell);
 
-    ret = eh_signal_slot_connect(&shell->sig_notify_process, &shell->sig_notify_process_slot);
+    ret = eh_signal_slot_connect(&shell->sig_notify_process, &shell->slot_notify_process);
     if(ret < 0){
         goto err_eh_signal_slot_connect;
     }
+#if CONFIG_PACKAGE_EHSHELL_PASSWORD_TIMEOUT > 0
+    eh_signal_slot_init(&shell->slot_1s_timer_process, ehshell_password_timer_1s_processor, shell);
+    ret = eh_signal_slot_connect(&signal_eh_comp_timer_1s, &shell->slot_1s_timer_process);
+    if(ret < 0){
+        goto err_eh_signal_eh_comp_timer_1s_connect;
+    }
+    shell->login_downcounter = CONFIG_PACKAGE_EHSHELL_PASSWORD_TIMEOUT;
+#endif
+
+
+
     ehshell_notify_processor(shell);
     return shell;
+#if CONFIG_PACKAGE_EHSHELL_PASSWORD_TIMEOUT > 0
+err_eh_signal_eh_comp_timer_1s_connect:
+    eh_signal_slot_disconnect(&shell->sig_notify_process, &shell->slot_notify_process);
+#endif
 err_eh_signal_slot_connect:
     eh_ringbuf_destroy(shell->input_ringbuf);
 err_input_ringbuf_create:
@@ -774,21 +827,19 @@ err_input_ringbuf_create:
 void ehshell_destroy(ehshell_t *ehshell){
     if(!ehshell)
         return;
-    for(size_t i = 0; i < EHSHELL_CONFIG_MAX_BACKGROUND_COMMAND_SIZE; i++){
+    for(size_t i = 0; i < CONFIG_PACKAGE_EHSHELL_MAX_BACKGROUND_COMMAND_SIZE; i++){
         if(ehshell->cmd_background[i]){
             if(ehshell->cmd_background[i]->command_info->do_event_function){
                 ehshell->cmd_background[i]->command_info->do_event_function(ehshell->cmd_background[i], EHSHELL_EVENT_SHELL_EXIT);
             }
-            ehshell->cmd_background[i]->ehshell = NULL;
         }
     }
-    if(ehshell->cmd_current){
-        if(ehshell->cmd_current->command_info->do_event_function){
-            ehshell->cmd_current->command_info->do_event_function(ehshell->cmd_current, EHSHELL_EVENT_SHELL_EXIT);
+    if(ehshell_current_command_context(ehshell)){
+        if(ehshell->cmd_current.command_info->do_event_function){
+            ehshell->cmd_current.command_info->do_event_function(&ehshell->cmd_current, EHSHELL_EVENT_SHELL_EXIT);
         }
-        ehshell->cmd_current->ehshell = NULL;
     }
-    eh_signal_slot_disconnect(&ehshell->sig_notify_process, &ehshell->sig_notify_process_slot);
+    eh_signal_slot_disconnect(&ehshell->sig_notify_process, &ehshell->slot_notify_process);
     eh_ringbuf_destroy(ehshell->input_ringbuf);
     eh_free(ehshell);
 }
@@ -826,7 +877,7 @@ eh_ringbuf_t* ehshell_command_input_ringbuf(ehshell_cmd_context_t *cmd_context, 
         !(cmd_context->command_info->flags & EHSHELL_COMMAND_REDIRECT_INPUT) ||
         !ehshell ||
         ehshell->state != EHSHELL_STATE_REDIRECT_INPUT ||
-        ehshell->cmd_current != cmd_context)
+        &ehshell->cmd_current != cmd_context)
         return NULL;
     tmp_ringbuf = *ehshell->input_ringbuf;
     tmp_ringbuf.w = ehshell->redirect_input_escape_parse_pos;
@@ -844,8 +895,8 @@ ehshell_t* ehshell_command_get_shell(ehshell_cmd_context_t *cmd_context){
 int ehshell_register_commands(const struct ehshell_command_info *command_info, size_t command_info_num){
     if(!command_info || command_info_num == 0)
         return EH_RET_INVALID_PARAM;
-    if(ehshell_command_count + command_info_num > EHSHELL_CONFIG_MAX_COMMAND_SIZE){
-        eh_merrfl( EHSHELL,"command_info_num %d is too large, max_command_size %d", command_info_num, EHSHELL_CONFIG_MAX_COMMAND_SIZE);
+    if(ehshell_command_count + command_info_num > CONFIG_PACKAGE_EHSHELL_MAX_COMMAND_SIZE){
+        eh_merrfl( EHSHELL,"command_info_num %d is too large, max_command_size %d", command_info_num, CONFIG_PACKAGE_EHSHELL_MAX_COMMAND_SIZE);
         return EH_RET_INVALID_PARAM;
     }
     /* 循环插入有序数组中 */

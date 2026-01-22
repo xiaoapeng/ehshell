@@ -81,6 +81,13 @@ extern ehshell_t *ehshell_create(const struct ehshell_config *static_config);
 extern void ehshell_destroy(ehshell_t *ehshell);
 
 /**
+ * @brief                   设置ehshell登录密码,该函数只有使用启用密码登录时才有效
+ * @param  password         密码字符串
+ * @return int              成功返回0, 失败返回负数
+ */
+extern int ehshell_set_password(const char *password);
+
+/**
  * @brief                   获取ehshell输入环形缓冲区,可用于在中断或者任务中写入数据，
  *                          数据写入完成后应该调用ehshell_notify_process通知ehshell处理数据
  * @param  ehshell          ehshell实例指针
