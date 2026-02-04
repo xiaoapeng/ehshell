@@ -26,11 +26,22 @@ typedef struct eh_ringbuf eh_ringbuf_t;
 typedef struct eh_event_flags eh_event_flags_t;
 struct stream_base;
 
+enum ehshell_quit_result{
+    EHSHELL_QUIT_SUCCESS = 0,
+    EHSHELL_QUIT_REJECTED,
+};
+
 struct ehshell_config{
     void (*stream_write)(ehshell_t* ehshell, const char *buf, size_t len);
     void (*stream_finish)(ehshell_t* ehshell);
     void (*input_ringbuf_process_finish)(ehshell_t* ehshell);
     const char *host;
+    /**
+     * @brief 退出ehshell信号函数,请在该函数中，清理ehshell实例占用的资源，否则请返回EHSHELL_QUIT_REJECTED
+     * @param ehshell  ehshell实例指针
+     * @return enum ehshell_quit_result 退出结果
+     */
+    enum ehshell_quit_result (*quit_shell)(ehshell_t* ehshell);
     uint16_t input_ringbuf_size;
     uint16_t input_linebuf_size;
 };
@@ -79,6 +90,21 @@ extern ehshell_t *ehshell_create(const struct ehshell_config *static_config);
  * @param  ehshell          ehshell实例指针
  */
 extern void ehshell_destroy(ehshell_t *ehshell);
+
+/**
+ * @brief                   设置ehshell用户数据,用户数据可以在ehshell命令处理函数中使用
+ * @param  ehshell          ehshell实例指针
+ * @param  user_data        用户数据指针
+ */
+extern void ehshell_set_userdata(ehshell_t *ehshell, void *user_data);
+
+/**
+ * @brief                   获取ehshell用户数据
+ * @param  ehshell          ehshell实例指针
+ * @return void*            返回用户数据指针
+ */
+extern void *ehshell_get_user_data(ehshell_t *ehshell);
+
 
 /**
  * @brief                   设置ehshell登录密码,该函数只有使用启用密码登录时才有效
@@ -160,15 +186,22 @@ extern void ehshell_command_finish(ehshell_cmd_context_t *cmd_context);
  * @param  cmd_context      命令上下文指针
  * @param  user_data        用户数据指针
  */
-extern void ehshell_command_set_user_data(ehshell_cmd_context_t *cmd_context, void *user_data);
+extern void ehshell_command_set_userdata(ehshell_cmd_context_t *cmd_context, void *user_data);
 
 /**
  * @brief                   获取ehshell命令上下文用户数据
  * @param  cmd_context      命令上下文指针
  * @return void*            返回用户数据指针
  */
-extern void *ehshell_command_get_user_data(ehshell_cmd_context_t *cmd_context);
+extern void *ehshell_command_get_userdata(ehshell_cmd_context_t *cmd_context);
 
+
+/**
+ * @brief                   获取ehshell命令上下文命令信息
+ * @param  cmd_context      命令上下文指针
+ * @return const struct ehshell_command_info* 返回ehshell命令上下文命令信息指针
+ */
+extern const struct ehshell_command_info * ehshell_command_getcommand_info(ehshell_cmd_context_t *cmd_context);
 
 /**
  * @brief                   注册命令

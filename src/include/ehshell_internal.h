@@ -36,6 +36,7 @@ enum ehshell_state{
     EHSHELL_STATE_WAIT_INPUT,
     EHSHELL_STATE_REDIRECT_INPUT_INIT,
     EHSHELL_STATE_REDIRECT_INPUT,
+    EHSHELL_STATE_QUIT,
 };
 
 typedef struct ehshell_cmd_context{
@@ -51,6 +52,7 @@ typedef struct ehshell_cmd_context{
 #endif /* CONFIG_PACKAGE_EHSHELL_USE_PASSWORD */
 struct ehshell{
     const struct ehshell_config *config;
+    void *user_data;
     eh_ringbuf_t *input_ringbuf;
     ehshell_cmd_context_t *cmd_background[CONFIG_PACKAGE_EHSHELL_MAX_BACKGROUND_COMMAND_SIZE];
     ehshell_cmd_context_t cmd_current;

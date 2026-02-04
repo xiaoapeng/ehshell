@@ -8,7 +8,7 @@
  * 
  */
 
-#include <stdint.h>
+
 #include <string.h>
 #include <eh_error.h>
 #include <eh_formatio.h>
@@ -54,9 +54,11 @@ static void do_exit_mainloop(ehshell_cmd_context_t *cmd_context, int argc, const
 static void do_quit(ehshell_cmd_context_t *cmd_context, int argc, const char *argv[]){
     (void)argc;
     (void)argv;
-    eh_stream_printf(ehshell_command_stream(cmd_context), "Quit the current terminal session.\r\n\x03");
+    ehshell_t  *ehshell = cmd_context->ehshell;
+    eh_stream_printf(ehshell_command_stream(cmd_context), "Quit the current terminal session.\r\n");
     eh_stream_finish(ehshell_command_stream(cmd_context));
     ehshell_command_finish(cmd_context);
+    ehshell->state = EHSHELL_STATE_QUIT;
 }
 
 
@@ -154,7 +156,7 @@ static void do_login_event(ehshell_cmd_context_t *cmd_context, enum ehshell_even
             eh_stream_printf(stream, "^C\r\n");
             eh_stream_printf(stream, "Password: ");
             shell->login_hash = EHSHELL_LOGIN_FNV1A_64_HASH_INIT;
-        }else{
+        }else if(ch > 0 && isprint(ch)){
             login_fnv1a_64_hash_char(&shell->login_hash, ch);
             eh_stream_printf(stream, "*");
         }

@@ -30,8 +30,8 @@
 #include <sys/_intsup.h>
 
 
-#ifndef EH_DBG_MODEULE_LEVEL_EHSHELL
-#define EH_DBG_MODEULE_LEVEL_EHSHELL EH_DBG_INFO
+#ifndef EH_DBG_MODULE_LEVEL_EHSHELL
+#define EH_DBG_MODULE_LEVEL_EHSHELL EH_DBG_INFO
 #endif
 
 static const struct ehshell_command_info  * ehshell_commands[CONFIG_PACKAGE_EHSHELL_MAX_COMMAND_SIZE];
@@ -597,6 +597,12 @@ static void ehshell_processor(eh_event_t *e, void *slot_param){
         case EHSHELL_STATE_REDIRECT_INPUT:
             ehshell_processor_input_ringbuf_redirect(shell);
             break;
+        case EHSHELL_STATE_QUIT:
+            if(shell->config->quit_shell && shell->config->quit_shell(shell) == EHSHELL_QUIT_SUCCESS)
+                return ;
+            shell->state = EHSHELL_INIT;
+            ehshell_notify_processor(shell);
+            break;
     }
 }
 
@@ -696,6 +702,13 @@ int ehshell_command_run(ehshell_t *ehshell, int argc, const char *argv[]){
         eh_stream_finish((struct stream_base *)&ehshell->stream);
         return EH_RET_INVALID_PARAM;
     }
+
+    if(ehshell_current_command_context(ehshell)){
+        eh_stream_printf((struct stream_base *)&ehshell->stream, "The foreground command is running, command %s exec failure\r\n", argv[0]);
+        eh_stream_finish((struct stream_base *)&ehshell->stream);
+        return EH_RET_INVALID_STATE;
+    }
+
     command_info = ehshell_command_find(ehshell, argv[0]);
     if(!command_info){
         eh_stream_printf((struct stream_base *)&ehshell->stream, "ehshell: command not found: %s\r\n", argv[0]);
@@ -719,15 +732,18 @@ int ehshell_command_run(ehshell_t *ehshell, int argc, const char *argv[]){
 }
 
 
-void ehshell_command_set_user_data(ehshell_cmd_context_t *cmd_context, void *user_data){
+void ehshell_command_set_userdata(ehshell_cmd_context_t *cmd_context, void *user_data){
     cmd_context->user_data = user_data;
 }
 
 
-void *ehshell_command_get_user_data(ehshell_cmd_context_t *cmd_context){
+void *ehshell_command_get_userdata(ehshell_cmd_context_t *cmd_context){
     return cmd_context->user_data;
 }
 
+const struct ehshell_command_info * ehshell_command_getcommand_info(ehshell_cmd_context_t *cmd_context){
+    return cmd_context->command_info;
+}
 
 void ehshell_command_finish(ehshell_cmd_context_t *cmd_context){
     ehshell_t *ehshell = cmd_context->ehshell;
@@ -839,10 +855,26 @@ void ehshell_destroy(ehshell_t *ehshell){
             ehshell->cmd_current.command_info->do_event_function(&ehshell->cmd_current, EHSHELL_EVENT_SHELL_EXIT);
         }
     }
+#if CONFIG_PACKAGE_EHSHELL_PASSWORD_TIMEOUT > 0
+    eh_signal_slot_disconnect(&signal_eh_comp_timer_1s, &ehshell->slot_1s_timer_process);
+#endif
     eh_signal_slot_disconnect(&ehshell->sig_notify_process, &ehshell->slot_notify_process);
     eh_ringbuf_destroy(ehshell->input_ringbuf);
     eh_free(ehshell);
 }
+
+void ehshell_set_userdata(ehshell_t *ehshell, void *user_data){
+    if(!ehshell)
+        return;
+    ehshell->user_data = user_data;
+}
+
+void *ehshell_get_user_data(ehshell_t *ehshell){
+    if(!ehshell)
+        return NULL;
+    return ehshell->user_data;
+}
+
 
 
 eh_ringbuf_t* ehshell_input_ringbuf(ehshell_t *ehshell){

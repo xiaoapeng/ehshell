@@ -47,6 +47,12 @@ static void rtt_shell_read_poll_task(void* arg){
     ehshell_notify_processor(s_shell);
 }
 
+static enum ehshell_quit_result rtt_shell_quit(ehshell_t *ehshell){
+    (void)ehshell;
+    SEGGER_RTT_Write(CONFIG_PACKAGE_EHSHELL_BUILTIN_SEGGER_RTT_UP_CHANNEL_NUMBER, "\x03", 1);
+    return EHSHELL_QUIT_REJECTED;
+}
+
 static const struct ehshell_config shell_config = {
     .host = "eventos-rtt",
     .input_linebuf_size = CONFIG_PACKAGE_EHSHELL_BUILTIN_SEGGER_RTT_SHELL_LINE_BUFFER_SIZE,
@@ -54,6 +60,7 @@ static const struct ehshell_config shell_config = {
     .stream_write = rtt_shell_write,
     .stream_finish = NULL,
     .input_ringbuf_process_finish = NULL,
+    .quit_shell = rtt_shell_quit,
 };
 
 static eh_loop_poll_task_t s_shell_read_char_poll_task = {

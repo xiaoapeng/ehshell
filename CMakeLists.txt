@@ -12,10 +12,22 @@ target_link_libraries(ehshell PRIVATE eventhub)
 
 if(NOT CONFIG_PACKAGE_EHSHELL_BUILTIN_NONE)
     add_library(ehshell_builtin OBJECT)
+    list(APPEND EHSHELL_BUILTIN_SOURCES "${CMAKE_CURRENT_LIST_DIR}/port/ehshell_builtin.c" )
+    list(APPEND EHSHELL_BUILTIN_LINK_LIBRARIES ehshell)
+    list(APPEND EHSHELL_BUILTIN_LINK_LIBRARIES eventhub)
+
     if(CONFIG_PACKAGE_EHSHELL_BUILTIN_SEGGER_RTT)
-        target_sources(ehshell_builtin PRIVATE
-            "${CMAKE_CURRENT_LIST_DIR}/port/segger_rtt_shell.c"
-        )
+        list(APPEND EHSHELL_BUILTIN_SOURCES "${CMAKE_CURRENT_LIST_DIR}/port/segger_rtt_shell.c" )
+        list(APPEND EHSHELL_BUILTIN_LINK_LIBRARIES segger-rtt)
     endif()
-    target_link_libraries(ehshell_builtin PRIVATE ehshell segger-rtt eventhub )
+
+    if(CONFIG_PACKAGE_EHSHELL_BUILTIN_TELNET_SERVER)
+        list(APPEND EHSHELL_BUILTIN_SOURCES "${CMAKE_CURRENT_LIST_DIR}/port/telnet_server_shell.c" )
+        list(APPEND EHSHELL_BUILTIN_LINK_LIBRARIES ehip)
+    endif()
+
+    target_sources(ehshell_builtin PRIVATE
+        ${EHSHELL_BUILTIN_SOURCES}
+    )
+    target_link_libraries(ehshell_builtin PRIVATE ${EHSHELL_BUILTIN_LINK_LIBRARIES} )
 endif()
