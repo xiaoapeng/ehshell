@@ -27,7 +27,6 @@
 #include <ehshell_module.h>
 #include <ehshell_internal.h>
 #include <ehshell_escape_char.h>
-#include <sys/_intsup.h>
 
 
 #ifndef EH_DBG_MODULE_LEVEL_EHSHELL
@@ -951,5 +950,3 @@ static int __init  ehshell_core_init(void){
     return 0;
 }
 ehshell_module_core_export(ehshell_core_init, NULL);
-
-
